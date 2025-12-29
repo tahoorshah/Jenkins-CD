@@ -1,0 +1,86 @@
+pipeline {
+    agent any
+    
+    environment {
+        APP_DIR = "${WORKSPACE}/app"
+        SCRIPTS_DIR = "${WORKSPACE}/scripts"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code...'
+                checkout scm
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                echo 'Building application...'
+                sh 'echo "Build completed successfully"'
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            steps {
+                echo 'Deploying to staging environment...'
+                script {
+                    def result = sh(script: "${SCRIPTS_DIR}/deploy-staging.sh", returnStatus: true)
+                    if (result != 0) {
+                        error("Staging deployment failed")
+                    }
+                }
+            }
+        }
+        
+        stage('Staging Tests') {
+            steps {
+                echo 'Running staging tests...'
+                script {
+                    sleep(5) // Wait for deployment to stabilize
+                    def result = sh(script: 'curl -f http://localhost:8081/health', returnStatus: true)
+                    if (result != 0) {
+                        error("Staging health check failed")
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            steps {
+                echo 'Deploying to production environment...'
+                script {
+                    def result = sh(script: "${SCRIPTS_DIR}/deploy-production.sh", returnStatus: true)
+                    if (result != 0) {
+                        error("Production deployment failed")
+                    }
+                }
+            }
+        }
+        
+        stage('Production Tests') {
+            steps {
+                echo 'Running production tests...'
+                script {
+                    sleep(5) // Wait for deployment to stabilize
+                    def result = sh(script: 'curl -f http://localhost:8082/health', returnStatus: true)
+                    if (result != 0) {
+                        error("Production health check failed")
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'Deployment pipeline completed successfully!'
+        }
+        failure {
+            echo 'Deployment pipeline failed. Initiating rollback...'
+            script {
+                sh "${SCRIPTS_DIR}/rollback-production.sh"
+            }
+        }
+    }
+}
